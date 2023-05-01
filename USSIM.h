@@ -3,6 +3,8 @@
 //Imports
 #include <math.h>
 #include <stdbool.h>
+#include <Wire.h> //I2C
+#include "Adafruit_MCP4725.h" // DAC
 
 // Function Prototypes
 void setup();
@@ -26,7 +28,16 @@ void reset();
     #define M_PI 3.14159265358979323846
 #endif
 
+#define SCA 4
+#define SCL 5
 
+#define TCU_IN 10
+#define TCU_CLOCK 11
+#define TCU_INT 12
+
+#define BAUD_RATE 9600
+
+#define DAC_ADD 99 // from Datasheet, ADDY set low
 // Constant Values
 
 const double FREQ = 78.5 * (10*10*10);
@@ -84,3 +95,13 @@ const double THETA_BW[3] = \
 Used to stop a function at the end. Must be reset on close.
 */
 bool STOP_FLAG = false;
+Adafruit_MCP4725 dac;
+uint8_t SERIAL_IN;
+
+// Lookup Tables
+
+const PROGMEM int16_t DACLookup_Carrier[16] =
+{
+-1, 83, 152, 194, 203, 177, 120, 42, 
+83, 152, 194, 203, 177, 120, 42, -43
+};
