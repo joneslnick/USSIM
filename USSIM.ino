@@ -6,31 +6,86 @@ Group 01
 
 #include "USSIM.h"
 
+
+
 void setup() {
   // put your setup code here, to run once:
 
-  setup_timer();
-  setup_dac();
-
   // Setup Serial
   Serial.begin(BAUD_RATE);
+  delay(300);
 
-  // Reset all flags
-  reset();
+
+  setupDac();
 
   //Pin Statuses
   pinMode(TCU_IN, INPUT);
   pinMode(TCU_CLOCK, INPUT);
   pinMode(TCU_INT, INPUT);
 
+  pinMode(TEST_PIN, INPUT);
+
+  SERIAL_IN = 0;
+
   //Setup Interrupts
-  attachInterrupt(digitalPinToInterrupt(TCU_CLOCK), read_tcu_serial, FALLING);
-  attachInterrupt(digitalPinToInterrupt(TCU_INT), implement_func, FALLING);
+  attachInterrupt(digitalPinToInterrupt(TCU_CLOCK), readTCUSerial, RISING);
+  attachInterrupt(digitalPinToInterrupt(TCU_INT), implementFunction, FALLING);
+
 }
+
 
 void loop() {
   // put your main code here, to run repeatedly:
+
+  uint16_t next_val = 0;
+
+  //If scanning beam is active
+  if (ANTENNA == ANTENNA_SB) {
+    next_val = pgm_read_word(&(DACLookup_SB[SB_FUNCTION][SB_INDEX]));
+
+    if (SB_DIRECTION == TO) {
+      SB_INDEX = (SB_INDEX + 1) % SB_INDEX_MAX;
+    }
+    else {
+      
+      if (SB_INDEX == 0) {
+        SB_INDEX = SB_INDEX_MAX;
+      }
+      
+      SB_INDEX = (SB_INDEX - 1);
+    }
+
+
+    delayMicroseconds(SB_WAIT_TIME);
+  }
+  //Modulated/Unmodulated Carrier
+  else {
+    next_val = pgm_read_word(&(DACLookup_Carrier[ANTENNA][CARRIER_INDEX]));  
+
+    CARRIER_INDEX = (CARRIER_INDEX + 1) % CARRIER_INDEX_MAX;
+    delayMicroseconds(2);
+  }
+  
+  /*
+  uint16_t dac_val = analogRead(TEST_PIN);
+  Serial.println(dac_val);
+  */
+
+  //Prevent underflow/overflow
+  if (next_val > 4096) {
+    next_val = ZERO_VAL;
+  }
+
+  if (TRANSMITTER_ON) {
+    dacWrite(next_val);
+  }
+  else {
+    dacWrite(ZERO_VAL);
+  }
+
 }
+
+
 
 /*
 Reads TCU_IN, stores to next open position in SERIAL_IN
@@ -41,25 +96,21 @@ PARAMS:
 RETURNS:
   NONE
 */
-void read_tcu_serial() {
+void readTCUSerial() {
   // Shift left once for each read
   SERIAL_IN = SERIAL_IN << 1;
 
-  int status = digitalRead(TCU_IN);
+  bool status = digitalRead(TCU_IN);
+
   // Add new read to result, equivalent of setting last bit to 0 or 1
   SERIAL_IN = SERIAL_IN + status;
-
-  char print_out[20];
-  sprintf(print_out, "Received: %d\n", status);
-  //Serial.write(print_out);
-
   return;
 }
 
 
 /*
 Implements TCUs desired function using SERIAL_IN
-
+  * Follows EFCL given protocl
 
 PARAMS:
   NONE
@@ -67,101 +118,85 @@ PARAMS:
 RETURNS:
   NONE
 */
-void implement_func() {
-  
-  bool scanning_beam = false;
+void implementFunction() {
 
-  Serial.write("NEW COMMAND\n");
-  // DECODE
-
-  Serial.write("\tTRANSMITTER: ");
-  if (SERIAL_IN & 0b01000000) {
-    Serial.write("ON\n");
+  // First bit - Transmitter On/OFF
+  // If transmitter is off, must be pause
+  // Return if transmitter is off
+  SB = false;
+    
+  if (SERIAL_IN & 0b10000000) {
+    TRANSMITTER_ON = true;
   }
   else {
-    Serial.write("OFF\n");
-  }
+    TRANSMITTER_ON = false;
 
-  Serial.write("\tANTENNA: ");
-
-  switch (SERIAL_IN & 0b00111000) {
-    case (0b00000000):
-      Serial.write("IDENT/DATA\n");
-      break;
-    
-    case (0b0000100):
-      Serial.write("LEFT OCI\n");
-      break;
-
-    case(0b00010000):
-      Serial.write("REAR/UPPER OCI\n");
-      break;
-    
-    case(0b00011000):
-      Serial.write("RIGHT OCI\n");
-      break;
-    
-    case(0b00100000):
-      Serial.write("SCANNING BEAM\n");
-      scanning_beam = true;
-      break;
-    
-    case(0b00101000):
-      Serial.write("OFF\n");
-      break;
-    
-    case(0b00110000):
-      Serial.write("TEST\n");
-      break;
-    
-    case(0b00111000):
-      Serial.write("UNUSED\n");
-      break;
-  }
-
-  Serial.write("\tFUNCTION: ");
-
-  if (!scanning_beam) {
-    Serial.write("PHASE CHANGE\n");
-
-    //Reset serial input for next function
     SERIAL_IN = 0;
-    
     return;
   }
 
-  switch(SERIAL_IN & 0b00000110) {
-    case (0b000000000):
-      Serial.write("AZIMUTH\n");
-      break;
-    
-    case (0b00000010):
-      Serial.write("ELEVATION\n");
-      break;
-    
-    case (0b00000100):
-      Serial.write("BACK-AZIMUTH");
-      break;
-    
-    case (0b00000110):
-      Serial.write("UNUSED/HRAZ");
-      break;
+  // 3 bits denote antenna type in binary
+  ANTENNA = (SERIAL_IN & 0b00001110) >> 1;
+
+
+  // Second bit - DPSK
+  // If DPSK, then cannot be scanning beam
+  if (SERIAL_IN & 0b01000000) {
+    changePhase();
+
+    SERIAL_IN = 0;
+    return;
   }
 
-  Serial.write("\nDIRECTION: ");
-  switch(SERIAL_IN & 0b00000001) {
-    case (0b00000000):
-      Serial.write("TO");
+
+
+  //Must be scanning beam  
+  if (ANTENNA == ANTENNA_SB) {
+    SB = true;
+    SB_INDEX = 0;
+  }
+  else {
+    SERIAL_IN = 0; //OCI
+    return;
+  }
+
+  switch (SB_FUNCTION) {
+    case (AZ):
+      SB_INDEX_MAX = AZ_INDEX_MAX;
       break;
-    
-    case (0b00000001):
-      Serial.write("FRO");
+    case (EL):
+      SB_INDEX_MAX = EL_INDEX_MAX;
       break;
+    case (BAZ):
+      SB_INDEX_MAX = BAZ_INDEX_MAX;
+      break;
+    default:
+      SB_INDEX_MAX = AZ_INDEX_MAX;
+  }
+
+
+  //Determine direction / starting index
+  if (SERIAL_IN & 0b00100000) {
+    SB_DIRECTION = TO;
+  }
+  else {
+    SB_DIRECTION = FRO;
+  }
+
+  //Flip direction for BAZ
+  if (SB_FUNCTION == BAZ) {
+    SB_DIRECTION = !SB_DIRECTION;
+  }
+
+  if (SB_DIRECTION == TO) {
+    SB_INDEX = 0;
+  }
+  else {
+    SB_INDEX = SB_INDEX_MAX - 1;
   }
 
   //Reset serial input for next function
   SERIAL_IN = 0;
-
   return;
 }
 
@@ -176,127 +211,43 @@ PARAMS:
 RETURNS:
   NONE
 */
-void setup_dac() {
+void setupDac() {
   // Join I2C bus as controller, point towards DAC
-  dac.begin(DAC_ADD);
+  dac.begin(0x62);
 }
 
 
-/*
-Configures TC5
-*/
-void setup_timer() {
-  // select the generic clock generator used as source to the generic clock multiplexer
-  GCLK->CLKCTRL.reg = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID(GCM_TC4_TC5)) ;
-  while (GCLK->STATUS.bit.SYNCBUSY);
-
-  tcReset(); //reset TC5
-
-  // Set Timer counter 5 Mode to 16 bits, it will become a 16bit counter ('mode1' in the datasheet)
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_MODE_COUNT16;
-  // Set TC5 waveform generation mode to 'match frequency'
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_WAVEGEN_MFRQ;
-  //set prescaler
-  //the clock normally counts at the GCLK_TC frequency, but we can set it to divide that frequency to slow it down
-  //you can use different prescaler divisons here like TC_CTRLA_PRESCALER_DIV1 to get a different range
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_PRESCALER_DIV1 | TC_CTRLA_ENABLE; //it will divide GCLK_TC frequency by 1
-  //set the compare-capture register. 
-  //The counter will count up to this value (it's a 16bit counter so we use uint16_t)
-  //this is how we fine-tune the frequency, make it count to a lower or higher value
-  //F_CPU should be 48 MHZ
-  // Trigger every 1 us
-  TC5->COUNT16.CC[0].reg = (uint16_t) (F_CPU / 1e6 - 1);
-  while (tcIsSyncing());
-  
-  // Configure interrupt request
-  NVIC_DisableIRQ(TC5_IRQn);
-  NVIC_ClearPendingIRQ(TC5_IRQn);
-  NVIC_SetPriority(TC5_IRQn, 0);
-  NVIC_EnableIRQ(TC5_IRQn);
-
-  // Enable the TC5 interrupt request
-  TC5->COUNT16.INTENSET.bit.MC0 = 1;
-  while (tcIsSyncing()); //wait until TC5 is done syncing 
-}
-
-//Function that is used to check if TC5 is done syncing
-//returns true when it is done syncing
-bool tcIsSyncing()
-{
-  return TC5->COUNT16.STATUS.reg & TC_STATUS_SYNCBUSY;
-}
-
-//This function enables TC5 and waits for it to be ready
-void tcStartCounter()
-{
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_ENABLE; //set the CTRLA register
-  while (tcIsSyncing()); //wait until sync'd
-}
-
-//Reset TC5 
-void tcReset()
-{
-  TC5->COUNT16.CTRLA.reg = TC_CTRLA_SWRST;
-  while (tcIsSyncing());
-  while (TC5->COUNT16.CTRLA.bit.SWRST);
-}
-
-//disable TC5
-void tcDisable()
-{
-  TC5->COUNT16.CTRLA.reg &= ~TC_CTRLA_ENABLE;
-  while (tcIsSyncing());
-}
-
-
-/* 
-TC5 Interrupt Handler
-*/
-void TC5_Handler (void) {
-  //YOUR CODE HERE 
-
-  // END OF YOUR CODE
-  TC5->COUNT16.INTFLAG.bit.MC0 = 1; //Writing a 1 to INTFLAG.bit.MC0 clears the interrupt so that it will run again
-}
-
-/*
-Sets up and executes a scanning beam simulation
-  * Operation better defined in S23 clarifications
-
-PARAMS:
-  bool dir - 0 = to; 1 = fro
-  int func - 0 = AZ; 1 = EL; 2 = BAZ
-
-RETURNS:
-  NONE
-*/
-void scanning_beam(bool dir, int func) {
-
-  // BAZ scans backwards, flip direction
-  if (func == BAZ) {
-    dir = !dir;
-  }
-
-  // XXX Implement
-}
 
 /*
 Sets the output voltage  of the DAC
-  * Must be on the interval [-2048, 2047]
+  * Must be on the interval [0, 4095]
   * Does not write to EEPROM
 
 PARAMS:
-  int val - 12 bit signed integer value
+  uint16_t val - 12 bit signed integer value
 
 RETURNS:
   NONE
 */
-void DAC_write(int val) {
+void dacWrite(uint16_t val) {
+  Serial.println(val);
   dac.setVoltage(val, false);
   return;
 }
 
-void reset() {
-  STOP_FLAG = false;
+/*
+Performs a phase change in the carrier signal
+  * Change CARRIER_INDEX half a period away
+
+PARAMS:
+  NONE
+
+RETURNS:
+  NONE
+*/
+void changePhase(){
+  CARRIER_INDEX = ((CARRIER_INDEX) + (CARRIER_INDEX_MAX / 2)) % (CARRIER_INDEX_MAX);
   return;
 }
+
+
