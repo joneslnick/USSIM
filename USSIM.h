@@ -1,156 +1,78 @@
 //Imports
-#include <math.h>
 #include <stdbool.h>
-#include <Wire.h> //I2C
-#include "Adafruit_MCP4725.h" // DAC
+#include <Adafruit_MCP4725.h> // DAC
+#include <Wire.h> // I2C
 
-// Function Prototypes
-void setup();
-void loop();
-
-void setup_serial();
-
-void scanning_beam(bool dir, int func);
-
-void reset();
+#include "LookupTables.h"
 
 // # Defines
-
 #define AZ 0
 #define EL 1
 #define BAZ 2
 
-#define SINC_CONST 1.15
-
-#ifndef M_PI
-    #define M_PI 3.14159265358979323846
-#endif
+#define TO 1
+#define FRO 0
 
 // Connection to TCU Pinout
 #define TCU_IN 10
-#define TCU_CLOCK 11
-#define TCU_INT 12
+#define TCU_CLOCK 9
+#define TCU_INT 11
+
+#define ZERO_VAL 2048
+
+#define ANTENNA_SB 5
 
 // Debug Line BAUD
-#define BAUD_RATE 9600
+#define BAUD_RATE 115200
 
-#define DAC_ADD 99 // from Datasheet, ADDY set low
-
-
-// Constant Values
-
-const double FREQ = 78.5 * (10*10*10);
-const double OMEGA = 2 * M_PI * FREQ;
+#define DAC_ADD 0x62 // from Datasheet, ADDY set low
 
 
-// CONST Arrays 
+/* 
+CHANGE THIS TO CHANGE THE FUNCTION USED FOR SB
+0 - AZ
+1 - EL
+2 - BAZ
+*/
+#define SB_FUNCTION 1
 
-const double AMPLITUDE[7] = \
-                          {
-                            1,
-                            0.5,
-                            0.25,
-                            10,
-                            0,
-                            0,
-                            0
-                          };
 
-const double AMP_SCAN = AMPLITUDE[3];
 
-const double SCAN_BEAM_LIMS[3][2] = \
-                            {
-                              {
-                                -62,
-                                62
-                              },  
-                              {
-                                -1.5,
-                                29.5
-                              },
-                              {
-                                -42,
-                                42
-                              }
-                            };
+#define TEST_PIN A5
 
-const double RECV_POS[3] = \
-                        {
-                            -10,
-                            3,
-                            -10
-                        };
 
-const double THETA_BW[3] = \
-                        {
-                            2,
-                            1.5,
-                            3
-                        };
+
+#define SB_WAIT_TIME 4750
+
+#define AZ_INDEX_MAX 1240
+#define EL_INDEX_MAX 310
+#define BAZ_INDEX_MAX 840
+
+
+// Function Definitions
+void setup();
+void loop();
+
+void readTCUSerial();
+void implementFunction();
+
+void setupDac();
+
+void dacWrite(uint16_t val);
+void changePhase();
+
 
 //Global Variables
 
-/*
-Used to stop a function at the end. Must be reset on close.
-*/
-bool STOP_FLAG = false;
 Adafruit_MCP4725 dac;
-uint8_t SERIAL_IN;
+volatile uint8_t SERIAL_IN = 0;
+volatile uint8_t CARRIER_INDEX = 0;
+volatile uint16_t SB_INDEX = 0;
+volatile uint16_t SB_INDEX_MAX = 1240;
+volatile bool TRANSMITTER_ON = false;
 
-// Lookup Tables
+volatile bool SB = false;
+volatile bool SB_DIRECTION = true; //True = TO; FALSE = FRO;
 
-const PROGMEM int16_t DACLookup_Carrier[100] =
-{
--1, 158, 200, 93, -83, -198, -167, -13, 150, 202, 
-105, -71, -194, -174, -26, 141, 204, 116, -58, -189, 
--181, -39, 131, 204, 126, -46, -184, -187, -52, 121, 
-204, 136, -33, -178, -192, -64, 110, 203, 145, -20, 
--171, -196, -77, 99, 201, 154, -7, -163, -199, -89, 
-88, 198, 162, 6, -155, -202, -100, 76, 195, 170, 
-19, -146, -204, -111, 63, 191, 177, 32, -137, -205, 
--122, 51, 186, 183, 45, -127, -205, -132, 38, 180, 
-188, 57, -117, -205, -142, 25, 173, 193, 70, -106, 
--203, -151, 12, 166, 197, 82, -94, -201, -159, -1
-};
+volatile uint8_t ANTENNA = 0;
 
-const PROGMEM int16_t DACLookup_AZ[100] = 
-{
-27, 5, -31, 2, 31, -12, -30, 20, 25, -30, 
--19, 36, 9, -42, 2, 44, -16, -44, 29, 38, 
--44, -31, 56, 16, -68, 1, 76, -25, -81, 52, 
-78, -87, -69, 127, 45, -182, -3, 262, -91, -437, 
-411, 1791, 1821, 457, -432, -109, 262, 9, -184, 37, 
-131, -63, -91, 74, 56, -79, -29, 75, 5, -69, 
-13, 57, -28, -46, 36, 31, -43, -18, 43, 4, 
--42, 7, 37, -17, -31, 24, 22, -29, -14, 30, 
-4, -31, 4, 27, -12, -24, 17, 17, -22, -11, 
-23, 3, -24, 2, 22, -9, -19, 13, 14, -18
-};
-
-const PROGMEM int16_t DACLookup_EL[100] =
-{
-235, 261, 202, 63, -125, -310, -429, -426, -267, 52, 
-496, 999, 1478, 1845, 2032, 2003, 1765, 1362, 868, 373, 
--44, -323, -441, -408, -266, -75, 105, 225, 262, 216, 
-112, -13, -120, -180, -180, -126, -39, 52, 119, 145, 
-124, 67, -7, -73, -113, -116, -83, -27, 34, 81, 
-100, 87, 48, -4, -52, -82, -85, -62, -21, 25, 
-61, 76, 67, 38, -3, -40, -64, -68, -50, -18, 
-19, 48, 61, 55, 31, -2, -33, -53, -56, -42, 
--15, 15, 40, 51, 46, 27, -1, -28, -45, -48, 
--36, -14, 13, 34, 44, 40, 23, 0, -24, -39 
-};
-
-const PROGMEM int16_t DACLookup_BAZ[100] = 
-{
--13, -48, -26, 29, 51, 11, -46, -50, 7, 58, 
-41, -30, -69, -26, 52, 72, 2, -77, -68, 28, 
-99, 52, -67, -118, -24, 114, 127, -25, -176, -127, 
-106, 262, 102, -274, -437, -3, 942, 1821, 2010, 1369, 
-365, -333, -399, -53, 236, 201, -38, -186, -104, 76, 
-143, 40, -93, -105, 2, 94, 69, -33, -87, -38, 
-50, 72, 9, -60, -55, 13, 61, 34, -31, -56, 
--16, 40, 46, -3, -46, -33, 17, 44, 18, -29, 
--40, -5, 34, 31, -9, -37, -21, 19, 34, 8, 
--27, -30, 2, 30, 21, -13, -31, -12, 20, 27
-};
