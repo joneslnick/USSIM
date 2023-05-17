@@ -22,7 +22,7 @@ dac = @(value, input_low, input_high, output_low, output_high) round( output_low
 
 line_length = 10;
 
-sample_num = 100;
+sample_num = 10;
 
 
 dfiles = ['AZ_Table', 'EL_Table', 'BAZ_Table'];
@@ -38,7 +38,7 @@ t = linspace(0, 1/f, sample_num);
 %clk_cycles = 124e2;
 %t = [0:dt:clk_cycles*dt];
 
-carrier_wave = 0.1*0.125*sin(w*t);
+carrier_wave = 0.1*sin(w*t);
 
 figure(1);
 plot(t, carrier_wave, 'LineWidth', 2);
@@ -66,7 +66,7 @@ a = 10;
 %t = linspace(0, 50*(ang_max - ang_min), sample_num);
 %t = linspace(0, 50*(ang_max - ang_min), 10*sample_num);
 dt = 0.01;
-clk_cycles = 124e1;
+clk_cycles = 124e2;
 t = [0:dt:clk_cycles*dt];
 
 
@@ -111,7 +111,7 @@ a = 10;
 %t = linspace(0, 50*(ang_max - ang_min), sample_num);
 %t = linspace(0, 50*(ang_max - ang_min), 10*sample_num);
 dt = 0.01;
-clk_cycles = 31e1;
+clk_cycles = 31e2;
 t = [0:dt:clk_cycles*dt];
 
 inc = (dt*clk_cycles) / (ang_max - ang_min);
@@ -156,7 +156,7 @@ a = 10;
 %t = linspace(0, 50*(ang_max - ang_min), 10*sample_num);
 
 dt = 0.01;
-clk_cycles = 84e1;
+clk_cycles = 84e2;
 t = [0:dt:clk_cycles*dt];
 
 inc = (dt*clk_cycles) / (ang_max - ang_min);

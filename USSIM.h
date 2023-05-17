@@ -34,7 +34,7 @@ CHANGE THIS TO CHANGE THE FUNCTION USED FOR SB
 1 - EL
 2 - BAZ
 */
-#define SB_FUNCTION 1
+#define SB_FUNCTION 0
 
 
 
@@ -42,11 +42,14 @@ CHANGE THIS TO CHANGE THE FUNCTION USED FOR SB
 
 
 
-#define SB_WAIT_TIME 4750
 
-#define AZ_INDEX_MAX 1240
-#define EL_INDEX_MAX 310
-#define BAZ_INDEX_MAX 840
+#define AZ_WAIT_TIME 305
+#define EL_WAIT_TIME 298
+#define BAZ_WAIT_TIME 290
+
+#define AZ_INDEX_MAX 12400
+#define EL_INDEX_MAX 3100
+#define BAZ_INDEX_MAX 8400
 
 
 // Function Definitions
@@ -68,8 +71,9 @@ Adafruit_MCP4725 dac;
 volatile uint8_t SERIAL_IN = 0;
 volatile uint8_t CARRIER_INDEX = 0;
 volatile uint16_t SB_INDEX = 0;
-volatile uint16_t SB_INDEX_MAX = 1240;
+volatile uint16_t SB_INDEX_MAX = 12400;
 volatile bool TRANSMITTER_ON = false;
+volatile uint16_t SB_WAIT_TIME = 4750;
 
 volatile bool SB = false;
 volatile bool SB_DIRECTION = true; //True = TO; FALSE = FRO;

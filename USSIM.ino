@@ -40,7 +40,7 @@ void loop() {
   uint16_t next_val = 0;
 
   //If scanning beam is active
-  if (ANTENNA == ANTENNA_SB) {
+  if (ANTENNA == ANTENNA_SB && SB) {
     next_val = pgm_read_word(&(DACLookup_SB[SB_FUNCTION][SB_INDEX]));
 
     if (SB_DIRECTION == TO) {
@@ -55,6 +55,10 @@ void loop() {
       SB_INDEX = (SB_INDEX - 1);
     }
 
+    /*
+    Serial.print("SB INDEX: ");
+    Serial.println(SB_INDEX);
+    */
 
     delayMicroseconds(SB_WAIT_TIME);
   }
@@ -153,27 +157,14 @@ void implementFunction() {
   //Must be scanning beam  
   if (ANTENNA == ANTENNA_SB) {
     SB = true;
+    TRANSMITTER_ON = true;
     SB_INDEX = 0;
   }
   else {
+    SB = false;
     SERIAL_IN = 0; //OCI
     return;
   }
-
-  switch (SB_FUNCTION) {
-    case (AZ):
-      SB_INDEX_MAX = AZ_INDEX_MAX;
-      break;
-    case (EL):
-      SB_INDEX_MAX = EL_INDEX_MAX;
-      break;
-    case (BAZ):
-      SB_INDEX_MAX = BAZ_INDEX_MAX;
-      break;
-    default:
-      SB_INDEX_MAX = AZ_INDEX_MAX;
-  }
-
 
   //Determine direction / starting index
   if (SERIAL_IN & 0b00100000) {
@@ -181,6 +172,25 @@ void implementFunction() {
   }
   else {
     SB_DIRECTION = FRO;
+  }
+
+  switch (SB_FUNCTION) {
+      case (AZ):
+        SB_INDEX_MAX = AZ_INDEX_MAX;
+        SB_WAIT_TIME = AZ_WAIT_TIME;
+        break;
+      case (EL):
+        SB_INDEX_MAX = EL_INDEX_MAX;
+        SB_WAIT_TIME = EL_WAIT_TIME;
+        break;
+      case (BAZ):
+        SB_INDEX_MAX = BAZ_INDEX_MAX;
+        SB_WAIT_TIME = BAZ_WAIT_TIME;
+        break;
+      default:
+        SB_INDEX_MAX = AZ_INDEX_MAX;
+        SB_WAIT_TIME = AZ_WAIT_TIME;
+        break;
   }
 
   //Flip direction for BAZ
